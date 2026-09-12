@@ -1,0 +1,11 @@
+# Las preguntas que hace un cliente antes de pedir presupuesto.
+# Una por línea. Las líneas que empiezan por # se ignoran.
+
+¿Cuánto tarda una reforma de baño completa?
+¿El presupuesto es gratuito?
+¿Cuánta garantía tienen las reformas?
+¿Hay que pagar algo por adelantado?
+¿Trabajáis en Dos Hermanas?
+¿Cuánto cuesta reformar un baño de 5 metros cuadrados?
+¿Puedo pagar la reforma a plazos sin intereses?
+¿Retiráis los escombros vosotros?

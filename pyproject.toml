@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "answerable"
+version = "0.1.0"
+description = "Ask a real model whether your page can answer the questions your buyers ask, and fail the build when it cannot."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Ángel Muñiz Pedraza", email = "angelhd028@gmail.com" }]
+keywords = ["geo", "seo", "llm", "ai-search", "content-gap", "anthropic", "openai"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
+dependencies = ["requests>=2.31.0", "beautifulsoup4>=4.12.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/angelmunizpedraza/answerable"
+Issues = "https://github.com/angelmunizpedraza/answerable/issues"
+
+[project.scripts]
+answerable = "answerable.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["answerable*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
