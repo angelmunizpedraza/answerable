@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.answerable-cache/
+answerable-report.md
+answerable-report.json
+.venv/
