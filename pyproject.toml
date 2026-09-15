@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "answerable"
-version = "0.1.0"
+version = "1.0.0"
 description = "Ask a real model whether your page can answer the questions your buyers ask, and fail the build when it cannot."
 readme = "README.md"
 requires-python = ">=3.10"
