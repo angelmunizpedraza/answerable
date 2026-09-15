@@ -1,0 +1,181 @@
+name: answerable
+description: Ask a model whether your page answers the questions your buyers ask, verify every answer against the page, and fail the build when the page cannot answer enough.
+author: Ángel Muñiz Pedraza
+
+branding:
+  icon: help-circle
+  color: blue
+
+inputs:
+  target:
+    description: URL to check, or a path to an HTML file in the repository.
+    required: true
+  questions:
+    description: The questions, one per line. Lines starting with # are ignored. Use this or questions-file.
+    required: false
+    default: ""
+  questions-file:
+    description: Path to a file with one question per line. Used when "questions" is empty.
+    required: false
+    default: ""
+  provider:
+    description: echo, anthropic or openai. echo runs offline with no API key and no cost, and is only useful for wiring up the workflow.
+    required: false
+    default: anthropic
+  model:
+    description: Model id. Required unless the provider is echo.
+    required: false
+    default: ""
+  api-key:
+    description: API key for the provider. Pass a secret, never a literal.
+    required: false
+    default: ""
+  min-score:
+    description: Fail the step if the answerability score is below this (0-100). Empty reports without gating.
+    required: false
+    default: "70"
+  fail-on-hallucination:
+    description: Fail the step if any answer quoted text that is not on the page.
+    required: false
+    default: "false"
+  max-cost:
+    description: Stop the run before spending more than this many USD. Empty means no budget.
+    required: false
+    default: "1.00"
+  max-chars:
+    description: How much page text the model is allowed to read.
+    required: false
+    default: "60000"
+  cache-dir:
+    description: Where to keep the reply cache. Cache it between runs with actions/cache to make unchanged pages free.
+    required: false
+    default: .answerable-cache
+  markdown:
+    description: Where to write the markdown report.
+    required: false
+    default: answerable-report.md
+  json:
+    description: Where to write the JSON report. Empty writes no JSON.
+    required: false
+    default: ""
+  job-summary:
+    description: Append the markdown report to the GitHub job summary.
+    required: false
+    default: "true"
+  python-version:
+    description: Python version used to run answerable.
+    required: false
+    default: "3.12"
+  ref:
+    description: Git ref of answerable to install. Defaults to the default branch.
+    required: false
+    default: ""
+
+outputs:
+  report:
+    description: Path to the markdown report that was written.
+    value: ${{ inputs.markdown }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install answerable
+      shell: bash
+      env:
+        AN_REF: ${{ inputs.ref }}
+      run: |
+        set -euo pipefail
+        python -m pip install --upgrade pip
+        if [ -n "${AN_REF}" ]; then
+          pip install "answerable @ git+https://github.com/angelmunizpedraza/answerable@${AN_REF}"
+        else
+          # GITHUB_ACTION_PATH is this action at the ref the caller pinned, so
+          # a v1 tag runs v1's code instead of whatever main happens to be,
+          # and a pull request tests the pull request.
+          pip install "${GITHUB_ACTION_PATH}"
+        fi
+
+    - name: Run answerable
+      shell: bash
+      env:
+        AN_TARGET: ${{ inputs.target }}
+        AN_QUESTIONS: ${{ inputs.questions }}
+        AN_QUESTIONS_FILE: ${{ inputs.questions-file }}
+        AN_PROVIDER: ${{ inputs.provider }}
+        AN_MODEL: ${{ inputs.model }}
+        AN_MIN_SCORE: ${{ inputs.min-score }}
+        AN_FAIL_HALLUCINATION: ${{ inputs.fail-on-hallucination }}
+        AN_MAX_COST: ${{ inputs.max-cost }}
+        AN_MAX_CHARS: ${{ inputs.max-chars }}
+        AN_CACHE_DIR: ${{ inputs.cache-dir }}
+        AN_MD: ${{ inputs.markdown }}
+        AN_JSON: ${{ inputs.json }}
+        AN_API_KEY: ${{ inputs.api-key }}
+      run: |
+        set -uo pipefail
+
+        # Only exported when the input is set, so a key already present in the
+        # workflow environment is not shadowed by an empty string, and an
+        # Anthropic secret is never handed to OpenAI.
+        if [ -n "${AN_API_KEY}" ]; then
+          case "${AN_PROVIDER}" in
+            anthropic) export ANTHROPIC_API_KEY="${AN_API_KEY}" ;;
+            openai)    export OPENAI_API_KEY="${AN_API_KEY}" ;;
+          esac
+        fi
+
+        qfile="${AN_QUESTIONS_FILE}"
+        if [ -n "${AN_QUESTIONS}" ]; then
+          qfile="$(mktemp)"
+          printf '%s\n' "${AN_QUESTIONS}" > "${qfile}"
+        fi
+        if [ -z "${qfile}" ]; then
+          echo "answerable: give either 'questions' or 'questions-file'" >&2
+          exit 2
+        fi
+
+        args=(check "${AN_TARGET}" --questions "${qfile}")
+        args+=(--provider "${AN_PROVIDER}")
+        if [ -n "${AN_MODEL}" ]; then
+          args+=(--model "${AN_MODEL}")
+        fi
+        args+=(--cache-dir "${AN_CACHE_DIR}")
+        if [ -n "${AN_MAX_CHARS}" ]; then
+          args+=(--max-chars "${AN_MAX_CHARS}")
+        fi
+        args+=(--md "${AN_MD}")
+        if [ -n "${AN_JSON}" ]; then
+          args+=(--json "${AN_JSON}")
+        fi
+        if [ -n "${AN_MAX_COST}" ]; then
+          args+=(--max-cost "${AN_MAX_COST}")
+        fi
+        if [ -n "${AN_MIN_SCORE}" ]; then
+          args+=(--min-score "${AN_MIN_SCORE}")
+        fi
+        if [ "${AN_FAIL_HALLUCINATION}" = "true" ]; then
+          args+=(--fail-on-hallucination)
+        fi
+        # Last command on purpose: its exit code is the step's exit code, so
+        # min-score and fail-on-hallucination actually fail the build.
+        answerable "${args[@]}"
+
+    - name: Publish the report to the job summary
+      if: ${{ always() && inputs.job-summary == 'true' }}
+      shell: bash
+      env:
+        AN_MD: ${{ inputs.markdown }}
+      run: |
+        set -uo pipefail
+        # Reporting must never be the thing that fails a build that passed.
+        : "${GITHUB_STEP_SUMMARY:=/dev/null}"
+        if [ -s "${AN_MD}" ]; then
+          cat "${AN_MD}" >> "$GITHUB_STEP_SUMMARY" || true
+        else
+          echo "answerable produced no report." >> "$GITHUB_STEP_SUMMARY" || true
+        fi

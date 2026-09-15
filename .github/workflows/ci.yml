@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Tests
+        run: pytest -q
+
+      # Everything below runs with --offline: no API key, no cost, no network.
+      - name: CLI smoke test
+        run: |
+          answerable check examples/pagina.html \
+            --questions examples/preguntas.txt \
+            --offline --no-cache \
+            --md /tmp/report.md --json /tmp/report.json
+          test -s /tmp/report.md
+          test -s /tmp/report.json
+
+      - name: The gate must fail a page that cannot answer enough
+        run: |
+          set +e
+          answerable check examples/pagina.html \
+            --questions examples/preguntas.txt \
+            --offline --no-cache --quiet --min-score 100
+          code=$?
+          set -e
+          test "$code" -eq 1
+
+      - name: The gate must pass a page that answers enough
+        run: |
+          answerable check examples/pagina.html \
+            --questions examples/preguntas.txt \
+            --offline --no-cache --quiet --min-score 50
+
+      - name: A missing page must be an error, never a silent pass
+        run: |
+          set +e
+          answerable check no-existe.html \
+            --questions examples/preguntas.txt --offline --no-cache --quiet
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+      - name: The second run of an unchanged page must come from the cache
+        run: |
+          cache=$(mktemp -d)
+          answerable check examples/pagina.html -q examples/preguntas.txt \
+            --offline --cache-dir "$cache" --quiet
+          out=$(answerable check examples/pagina.html -q examples/preguntas.txt \
+            --offline --cache-dir "$cache" --json /tmp/second.json)
+          test -s /tmp/second.json
+          # Without this the step passes just as happily with caching broken.
+          echo "$out" | grep -q "8 of 8 model calls came from the cache"
+
+  action:
+    name: The action must run end to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Runs with the offline provider so the wiring is proved on every push,
+      # including pull requests from forks, which cannot see repository secrets.
+      - name: Run this repository's own action
+        uses: ./
+        with:
+          target: examples/pagina.html
+          questions-file: examples/preguntas.txt
+          provider: echo
+          min-score: "50"
+          markdown: answerable-report.md
+          json: answerable-report.json
+      - name: The reports must exist
+        run: |
+          test -s answerable-report.md
+          test -s answerable-report.json
+          grep -q "Answerability" answerable-report.md
+
+  live:
+    name: Against a real model
+    runs-on: ubuntu-latest
+    # Only on this repository: a fork has no secrets, and a job that goes
+    # green because it silently skipped is worse than no job at all.
+    if: github.repository == 'angelmunizpedraza/answerable'
+    steps:
+      - uses: actions/checkout@v4
+      - name: The key and the model must both be configured
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANSWERABLE_MODEL: ${{ vars.ANSWERABLE_MODEL }}
+        run: |
+          missing=""
+          [ -n "${ANTHROPIC_API_KEY}" ] || missing="secret ANTHROPIC_API_KEY"
+          [ -n "${ANSWERABLE_MODEL}" ] || missing="${missing} variable ANSWERABLE_MODEL"
+          if [ -n "${missing}" ]; then
+            echo "The paid path was NOT exercised: missing ${missing}." \
+              | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            exit 1
+          fi
+      - name: Run this repository's own action against a real model
+        uses: ./
+        with:
+          target: examples/pagina.html
+          questions-file: examples/preguntas.txt
+          provider: anthropic
+          model: ${{ vars.ANSWERABLE_MODEL }}
+          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          min-score: "50"
+          max-cost: "0.25"
+          fail-on-hallucination: "true"
