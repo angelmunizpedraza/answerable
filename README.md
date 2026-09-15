@@ -134,7 +134,7 @@ Four things have to be true before a model belongs in a pipeline, and each one i
     path: .answerable-cache
     key: answerable-${{ hashFiles('preguntas.txt') }}
 
-- uses: angelmunizpedraza/answerable@v1
+- uses: angelmunizpedraza/answerable@v1.0.0
   with:
     target: https://tu-web.es/servicios/reformas-bano
     questions-file: preguntas.txt
@@ -145,6 +145,8 @@ Four things have to be true before a model belongs in a pipeline, and each one i
     fail-on-hallucination: "true"
     max-cost: "0.50"
 ```
+
+Pin the exact tag, not a moving one. A moving `@v1` can change under you between two runs of the same pipeline, and a gate that changes without you changing anything is not a gate.
 
 Exit codes are the contract: `0` passed, `1` a gate failed, `2` the run could not be completed.
 
