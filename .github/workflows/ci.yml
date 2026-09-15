@@ -93,15 +93,16 @@ jobs:
           test -s answerable-report.json
           grep -q "Answerability" answerable-report.md
 
-  live:
-    name: Against a real model
+  live-gate:
+    name: Is the paid path configured?
     runs-on: ubuntu-latest
-    # Only on this repository: a fork has no secrets, and a job that goes
-    # green because it silently skipped is worse than no job at all.
+    # Only on this repository: a fork has no secrets.
     if: github.repository == 'angelmunizpedraza/answerable'
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
     steps:
-      - uses: actions/checkout@v4
       - name: The key and the model must both be configured
+        id: check
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANSWERABLE_MODEL: ${{ vars.ANSWERABLE_MODEL }}
@@ -110,10 +111,23 @@ jobs:
           [ -n "${ANTHROPIC_API_KEY}" ] || missing="secret ANTHROPIC_API_KEY"
           [ -n "${ANSWERABLE_MODEL}" ] || missing="${missing} variable ANSWERABLE_MODEL"
           if [ -n "${missing}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            # Said out loud, so nobody mistakes a skipped job for a passing one.
             echo "The paid path was NOT exercised: missing ${missing}." \
-              | tee -a "$GITHUB_STEP_SUMMARY" >&2
-            exit 1
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "Everything above ran against the offline provider." \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
+
+  live:
+    name: Against a real model
+    runs-on: ubuntu-latest
+    needs: live-gate
+    if: needs.live-gate.outputs.configured == 'true'
+    steps:
+      - uses: actions/checkout@v4
       - name: Run this repository's own action against a real model
         uses: ./
         with:
